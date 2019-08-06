@@ -1,0 +1,31 @@
+# Build Stage
+FROM golang as builder
+
+ENV GO111MODULE=on
+WORKDIR /app
+
+COPY go.mod .
+COPY go.sum .
+
+RUN go mod download
+
+COPY . .
+
+ENV GOOS=linux
+ENV GOARCH=arm
+ENV GOARM=6
+
+RUN GOOS=linux GOARCH=arm go build -a -o ds18b20-agent-go cmd/ds18b20-service/main.go
+
+# Image stage
+#FROM scratch
+FROM arm32v6/alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/ds18b20-agent-go .
+COPY public public/
+COPY config config/
+
+EXPOSE 8080
+CMD ["/app/ds18b20-agent-go"]

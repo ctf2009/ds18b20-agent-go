@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  ds18b20-agent:
+    build:
+      context: ../
+      dockerfile: Dockerfile-amd64
+
+    volumes:
+      - ./data/probes:/app/data/probes/
+
+    ports:
+      - "8080:8080"
