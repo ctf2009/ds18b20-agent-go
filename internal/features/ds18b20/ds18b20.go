@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/ctf2009/ds18b20-agent-go/internal/agent"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/render"
 	"io/ioutil"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -16,16 +18,18 @@ import (
 	"sync"
 )
 
-const STORE_FOLDER = "data/store"
-
-const DEVICES_ROOT = "data/probes"
-const DEVICES_FILE = "data/probes/w1_master_slaves"
+const DEVICES_FILE = "w1_master_slaves"
+const DEVICE_FILE = "w1_slave"
 
 const PROBE_MAP_FILE = "probe-map.json"
 
 var (
 	probeMap = make(map[string]string)
 	probes   = make(map[string]bool)
+
+	ds18b20Root string
+	devicesFile string
+	storeDir    string
 )
 
 type ds18b20 struct {
@@ -35,61 +39,63 @@ type ds18b20 struct {
 	Error       string  `json:"error"`
 }
 
-func Init() {
-	fmt.Println("Initialising probe")
+func Init(config *agent.Config) {
+	log.Println("Initialising DS18b20 Probes")
 
-	w1MasterSlaveData, err := ioutil.ReadFile(DEVICES_FILE)
+	ds18b20Root = config.DS18B20_ROOT
+	devicesFile = path.Join(ds18b20Root, DEVICES_FILE)
+	storeDir = config.STORE_DIR
+
+	w1MasterSlaveData, err := ioutil.ReadFile(devicesFile)
 	if err != nil {
-		fmt.Println(err)
-		// TODO: ... Terminate ... Theres no way of knowing what we have to deal with
+		log.Panicf("Unable to locate devices file %s", devicesFile)
 	}
 
 	sensors := strings.Split(string(bytes.TrimSpace(w1MasterSlaveData)), "\n")
 
 	if len(sensors) != 0 {
+		log.Printf("Found %d probes\n", len(sensors))
 		for _, sensor := range sensors {
 			probes[sensor] = true
-			fmt.Printf("Setting up Probe with name: %s\n", sensor)
+			log.Printf("Setting up Probe with name: %s\n", sensor)
 		}
-
-		fmt.Printf("Found %d probes\n", len(probes))
 	} else {
-		fmt.Println("No Probes Available")
+		log.Println("No Probes Found")
 	}
 
-	if _, err := os.Stat(STORE_FOLDER); os.IsNotExist(err) {
-		os.Mkdir(STORE_FOLDER, os.ModePerm)
+	if _, err := os.Stat(storeDir); os.IsNotExist(err) {
+		os.Mkdir(storeDir, os.ModePerm)
 	} else {
 		loadProbeMapFile()
 	}
 }
 
 func loadProbeMapFile() {
-	probeMapFilePath := path.Join(STORE_FOLDER, PROBE_MAP_FILE)
+	probeMapFilePath := path.Join(storeDir, PROBE_MAP_FILE)
 
 	if _, err := os.Stat(probeMapFilePath); os.IsNotExist(err) {
-		fmt.Printf("%s file not found\n", PROBE_MAP_FILE)
+		log.Printf("%s file not found\n", PROBE_MAP_FILE)
 	} else {
-		fmt.Printf("Loading %s\n", PROBE_MAP_FILE)
+		log.Printf("Loading %s\n", PROBE_MAP_FILE)
 		if jsonFile, err := os.Open(probeMapFilePath); err != nil {
-			fmt.Printf("Error reading %s: %s", PROBE_MAP_FILE, err)
+			log.Printf("Error reading %s: %s", PROBE_MAP_FILE, err)
 		} else {
 			byteValue, _ := ioutil.ReadAll(jsonFile)
 			if err := json.Unmarshal([]byte(byteValue), &probeMap); err != nil {
-				fmt.Printf("Unable to parse %s: %s", PROBE_MAP_FILE, err)
+				log.Printf("Unable to parse %s: %s", PROBE_MAP_FILE, err)
 			}
 		}
 	}
 }
 
 func updateProbeMapFile() {
-	probeMapFilePath := path.Join(STORE_FOLDER, PROBE_MAP_FILE)
+	probeMapFilePath := path.Join(storeDir, PROBE_MAP_FILE)
 
-	if _, err := os.Stat(STORE_FOLDER); os.IsNotExist(err) {
-		os.Mkdir(STORE_FOLDER, os.ModePerm)
+	if _, err := os.Stat(storeDir); os.IsNotExist(err) {
+		os.Mkdir(storeDir, os.ModePerm)
 	}
-	json, _ := json.Marshal(probeMap)
-	if err := ioutil.WriteFile(probeMapFilePath, json, 0644); err != nil {
+	jsonString, _ := json.Marshal(probeMap)
+	if err := ioutil.WriteFile(probeMapFilePath, jsonString, 0644); err != nil {
 		fmt.Printf("Failed to write updated %s due to error %s", probeMapFilePath, err)
 	}
 }
@@ -101,10 +107,10 @@ func getAllDs18b20(w http.ResponseWriter, r *http.Request) {
 		var wg sync.WaitGroup
 		ds18b20Chan := make(chan *ds18b20, len(probes))
 
-		for probeId, _ := range probes {
+		for probeId := range probes {
 			wg.Add(1)
-			go func(id string) {
-				ds18b20Chan <- getDs18b20(id)
+			go func(probeId string) {
+				ds18b20Chan <- getDs18b20(probeId)
 				wg.Done()
 			}(probeId)
 		}
@@ -113,7 +119,6 @@ func getAllDs18b20(w http.ResponseWriter, r *http.Request) {
 		close(ds18b20Chan)
 
 		for ds18b20 := range ds18b20Chan {
-			fmt.Println("Handling Result: " + ds18b20.Id)
 			results = append(results, ds18b20)
 		}
 	}
@@ -126,23 +131,19 @@ func getDs18b20(probeId string) *ds18b20 {
 		Label: probeMap[probeId],
 	}
 
-	fmt.Println("Reading: " + DEVICES_ROOT + "/" + probeId + "/w1_slave\n")
-
-	data, err := ioutil.ReadFile(DEVICES_ROOT + "/" + probeId + "/w1_slave")
+	data, err := ioutil.ReadFile(path.Join(ds18b20Root, probeId, DEVICE_FILE))
 	if err != nil {
 		fmt.Println(err)
 		probe.Temperature = -1
 	}
 
 	raw := string(bytes.TrimSpace(data))
-	fmt.Println("Raw" + raw)
-
 	temperatureIndex := strings.LastIndex(raw, "t=")
 
 	if temperatureIndex == -1 {
 		probe.Temperature = -1
 	} else {
-		if c, err := strconv.ParseFloat(raw[temperatureIndex+2:len(raw)], 64); err != nil {
+		if c, err := strconv.ParseFloat(raw[temperatureIndex+2:], 64); err != nil {
 			probe.Error = err.Error()
 			probe.Temperature = -1
 		} else {

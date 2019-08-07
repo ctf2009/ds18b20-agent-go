@@ -1,0 +1,6 @@
+---
+
+PORT: 8080
+
+DS18B20_ROOT: test/data/probes
+STORE_DIR: test/data/store

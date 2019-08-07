@@ -1,7 +1,0 @@
----
-
-PORT: 8080
-DEVICES_FILE: test/data/probes/w1_master_slaves
-DEVICES_ROOT: test/data/probes
-
-STORE_DIR: test/data/store

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/ctf2009/ds18b20-agent-go/internal/agent"
 	"github.com/ctf2009/ds18b20-agent-go/internal/features/ds18b20"
 	"github.com/ctf2009/ds18b20-agent-go/internal/features/web"
 	"github.com/go-chi/chi"
@@ -12,16 +13,16 @@ import (
 )
 
 func main() {
-	//configuration, err := config.New()
-	//if err != nil {
-	//	log.Panicln("Configuration error", err)
-	//}
+	configuration, err := agent.NewConfig()
+	if err != nil {
+		log.Panicln("Configuration error", err)
+	}
 
-	ds18b20.Init()
+	ds18b20.Init(configuration)
 	web.Init()
 
 	r := Router()
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe(":"+configuration.PORT, r))
 }
 
 func Router() *chi.Mux {
