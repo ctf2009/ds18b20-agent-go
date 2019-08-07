@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile-amd64
 
     volumes:
-      - ./data/probes:/app/data/probes/
+      - ./:/app/test/
 
     ports:
       - "8080:8080"

@@ -21,7 +21,6 @@ WORKDIR /app
 
 COPY --from=builder /app/ds18b20-agent-go .
 COPY public public/
-COPY config config/
 
 EXPOSE 8080
 CMD ["/app/ds18b20-agent-go"]
